@@ -45,7 +45,6 @@ CONFIG_HOSTCERT        = 'x509_user_cert'
 CONFIG_CERTDIR         = 'x509_cert_dir'
 CONFIG_LOG_DIR         = 'log_dir'
 CONFIG_LOG_ALL         = 'log_all'
-CONFIG_LOG_VO          = 'log_vo'
 CONFIG_RECORD_LIFETIME = 'record_lifetime'
 CONFIG_LOGFILE         = 'registrant_logfile'
 
@@ -73,10 +72,6 @@ CR_NAMESPACE = "http://sams.snic.se/namespaces/2016/04/cloudrecords"
 CLOUD_RECORDS           = ET.QName("{%s}CloudRecords"           % CR_NAMESPACE)
 CLOUD_COMPUTE_RECORD    = ET.QName("{%s}CloudComputeRecord"    % CR_NAMESPACE)
 CLOUD_STORAGE_RECORD    = ET.QName("{%s}CloudStorageRecord"    % CR_NAMESPACE)
-RECORD_IDENTITY         = ET.QName("{%s}RecordIdentity"        % CR_NAMESPACE)
-RECORD_ID               = ET.QName("{%s}recordId"              % CR_NAMESPACE)
-SUBJECT_IDENTITY        = ET.QName("{%s}SubjectIdentity"       % CR_NAMESPACE)
-GROUP                   = ET.QName("{%s}Group"                 % CR_NAMESPACE)
 
 # -- code
 
@@ -211,45 +206,13 @@ def parseLogAll(value):
     return value.split(' ')
 
 
-def parseLogVO(value):
-    vo_regs = {}
-
-    if value == None or len(value) == 0:
-        return vo_regs
-
-    pairs = value.split(',')
-    for pair in pairs:
-        vo_name, url = pair.strip().split(' ',2)
-        vo_regs[vo_name] = url
-    return vo_regs
-
-
 def parseRecordLifeTime(value):
     record_lifetime_days = int(value)
     record_lifetime_seconds = record_lifetime_days * (24 * 60 * 60)
     return record_lifetime_seconds
 
 
-def getVONamesFromRecord(record_tree):
-    """
-    Return the VO name element values of a usage record.
-    """
-    # for some reason the followng fails :-/
-    # >>> ur.getroot().findall(VO_NAME)
-    # so we do it the silly way and iterate over the tree instead.
-
-    vos = []
-    for e in record_tree.getroot():
-        if e.tag == SUBJECT_IDENTITY:
-            for f in e:
-                if f.tag == GROUP:
-                    vos.append(f.text)
-    return vos
-
-
-
-
-def createRegistrationPointsMapping(logdir, logpoints_all, logpoints_vo):
+def createRegistrationPointsMapping(logdir, logpoints_all):
     """
     Create a mapping from all the usage records filenames to which endpoints they
     should be registered.
@@ -270,14 +233,8 @@ def createRegistrationPointsMapping(logdir, logpoints_all, logpoints_vo):
             log.msg('Error parsing file %(filepath)s, (%(error)s) continuing' % {'filepath' : filepath, 'error': str(e) })
             continue
 
-        vos = getVONamesFromRecord(rec)
-
         for lp in logpoints_all:
             mapping.setdefault(lp, []).append(filename)
-        for vo in vos:
-            vo_lp = logpoints_vo.get(vo)
-            if vo_lp:
-                mapping.setdefault(vo_lp, []).append(filename)
 
     return mapping
 
@@ -605,10 +562,8 @@ def doMain():
     log_dir = getConfigOption(cfg, CONFIG_SECTION_LOGGER, CONFIG_LOG_DIR, DEFAULT_LOG_DIR)
 
     las = getConfigOption(cfg, CONFIG_SECTION_LOGGER, CONFIG_LOG_ALL)
-    lvo = getConfigOption(cfg, CONFIG_SECTION_LOGGER, CONFIG_LOG_VO)
     rlt = getConfigOption(cfg, CONFIG_SECTION_LOGGER, CONFIG_RECORD_LIFETIME, DEFAULT_UR_LIFETIME)
     log_all = parseLogAll(las)
-    log_vo  = parseLogVO(lvo)
     record_lifetime = parseRecordLifeTime(rlt)
 
     host_key  = getConfigOption(cfg, CONFIG_SECTION_COMMON, CONFIG_HOSTKEY, DEFAULT_HOSTKEY)
@@ -618,12 +573,11 @@ def doMain():
     log.msg('Configuration:')
     log.msg(' Log dir: %s' % log_dir)
     log.msg(' Log all: %s' % log_all)
-    log.msg(' Log vo : %s' % log_vo)
     #log.msg(' Host key  : %s' % host_key)
     #log.msg(' Host cert : %s' % host_cert)
     #log.msg(' Cert dir  : %s' % cert_dir)
 
-    if not (log_all or log_vo):
+    if not (log_all):
         log.msg('No log points given. Cowardly refusing to do anything')
         return
 
@@ -631,7 +585,7 @@ def doMain():
         log.msg('Log directory %s does not exist, bailing out.' % log_dir)
         return
 
-    mapping = createRegistrationPointsMapping(log_dir, log_all, log_vo)
+    mapping = createRegistrationPointsMapping(log_dir, log_all)
     cf = ContextFactory(host_key, host_cert, cert_dir)
     d = registerUsageRecords(mapping, log_dir, cf)
     d.addCallback(lambda _ : deleteOldUsageRecords(log_dir, record_lifetime))
