@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 Script to register storage records to SGAS LUTS service.
@@ -15,8 +15,15 @@ Copyright: NorduNET / Nordic Data Grid Facility (2009-2011)
 import sys
 import os
 import time
-import urlparse
-import ConfigParser
+try:
+    from urlparse import urlparse
+except ImportError:
+    from urllib.parse import urlparse
+
+try:
+    import ConfigParser
+except ImportError:
+    import configparser as ConfigParser
 
 from xml.etree import cElementTree as ET
 
@@ -53,7 +60,7 @@ DEFAULT_CONFIG_FILE  = "/etc/sgas-sr-registrant.conf"
 DEFAULT_HOSTKEY      = '/etc/grid-security/hostkey.pem'
 DEFAULT_HOSTCERT     = '/etc/grid-security/hostcert.pem'
 DEFAULT_CERTDIR      = '/etc/grid-security/certificates'
-DEFAULT_LOG_DIR      = '/var/spool/sgas/'
+DEFAULT_LOG_DIR      = '/var/spool/sgas-storagerecords/'
 DEFAULT_BATCH_SIZE   = 1
 DEFAULT_UR_LIFETIME  = 30 # days
 
@@ -180,10 +187,10 @@ def getConfig(filepath=None):
     if filepath is None:
         filepath = DEFAULT_CONFIG_FILE
 
-    cfg_file = file(filepath)
+    cfg_file = open(filepath,"r")
 
-    cfg = ConfigParser.SafeConfigParser()
-    cfg.readfp(cfg_file)
+    cfg = ConfigParser.ConfigParser()
+    cfg.read_file(cfg_file)
     return cfg
 
 
@@ -262,7 +269,7 @@ def createRegistrationPointsMapping(logdir, logpoints_all, logpoints_vo):
 
         try:
             rec = ET.parse(filepath)
-        except Exception, e:
+        except Exception as e:
             log.msg('Error parsing file %(filepath)s, (%(error)s) continuing' % {'filepath' : filepath, 'error': str(e) })
             continue
 
@@ -290,7 +297,7 @@ def createFileEPMapping(epmap):
 
 
 
-def httpRequest(url, method='GET', payload=None, ctxFactory=None):
+def httpRequest(url, method=b'GET', payload=None, ctxFactory=None):
     # probably need a header options as well
     """
     Peform a http request.
@@ -299,7 +306,7 @@ def httpRequest(url, method='GET', payload=None, ctxFactory=None):
     # factory (which contains response codes, headers, etc)
 
     # scheme, host, port, path, params, query, fragment = http.urlparse(url)
-    scheme, netloc, path, params, query, fragment = http.urlparse(url)
+    scheme, netloc, path, params, query, fragment = http.urlparse(url.encode(encoding='utf-8'))
     if scheme == b'https':
         defaultPort = 443
     else:
@@ -313,18 +320,17 @@ def httpRequest(url, method='GET', payload=None, ctxFactory=None):
         except ValueError:
             port = defaultPort
 
-    factory = client.HTTPClientFactory(url, method=method, postdata=payload)
+    factory = client.HTTPClientFactory(url.encode(encoding='utf-8'), method=method, postdata=payload)
     factory.noisy = False # stop spewing about factory start/stop
     # fix missing port in header (bug in twisted.web.client)
     if port:
-        factory.headers['host'] = host + ':' + str(port)
+        factory.headers[b'host'] = host.decode(encoding='utf-8') + ':' + str(port)
 
-    if scheme == 'https':
-        reactor.connectSSL(host, port, factory, ctxFactory)
+    if scheme == b'https':
+        reactor.connectSSL(host.decode(encoding='utf-8'), port, factory, ctxFactory)
     else:
-        reactor.connectTCP(host, port, factory)
+        reactor.connectTCP(host.encode(encoding='utf-8'), port, factory)
 
-    #factory.deferred.addBoth(f, factory)
     return factory.deferred, factory
 
 
@@ -387,11 +393,11 @@ def insertUsageRecords(url, payload, ctxFactory):
     service.
     """
     def gotResponse(result, factory, url):
-        if factory.status != '200':
+        if factory.status != b'200':
             log.msg("Reply from %s had other response code than 200 (%s)" % (url, factory.status))
         return result
 
-    d, f = httpRequest(url, method='POST', payload=payload, ctxFactory=ctxFactory)
+    d, f = httpRequest(url, method=b'POST', payload=payload, ctxFactory=ctxFactory)
     d.addCallback(gotResponse, f, url)
     return d
 
@@ -571,11 +577,11 @@ def doMain():
     cmd_cfg = CommandLineOptions()
     try:
         cmd_cfg.parseOptions()
-    except SystemExit, e:
+    except SystemExit as e:
         return # deal with silly sys.exit(0) in twisted.python.usage
-    except usage.UsageError, e:
-        print '%s: %s' % (sys.argv[0], str(e))
-        print '%s: Try --help for usage details.' % (sys.argv[0])
+    except usage.UsageError as e:
+        print('%s: %s' % (sys.argv[0], str(e)))
+        print('%s: Try --help for usage details.' % (sys.argv[0]))
         return
 
     cfg_file = cmd_cfg['config-file']
